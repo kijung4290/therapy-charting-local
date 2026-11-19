@@ -1,0 +1,75 @@
+{
+  "name": "therapy-charting-local",
+  "productName": "원탑통증재활센터",
+  "version": "1.0.0",
+  "author": "원탑통증재활센터",
+  "description": "원탑통증재활센터 치료차팅 로컬 설치형 프로그램 (메세지미 국내 직접 발송 · 스프레드시트 데이터 이전 · GitHub 실시간 자동 업데이트)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kijung4290/therapy-charting-local.git"
+  },
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev:server": "node src/server-cli.js",
+    "test": "vitest run",
+    "build:icon": "node scripts/generate-icon.js",
+    "build:win": "node scripts/generate-icon.js && electron-builder --win nsis",
+    "build:dir": "node scripts/generate-icon.js && electron-builder --win --dir",
+    "release:win": "node scripts/generate-icon.js && electron-builder --win nsis --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "electron": "^35.2.0",
+    "electron-builder": "^25.1.8",
+    "vitest": "^3.1.2"
+  },
+  "build": {
+    "appId": "com.onetop.therapycharting.local",
+    "productName": "원탑통증재활센터",
+    "artifactName": "OneTop-TherapyCharting-Setup-${version}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kijung4290",
+        "repo": "therapy-charting-local",
+        "releaseType": "release"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "public/**/*",
+      "assets/icon.ico",
+      "assets/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "원탑통증재활센터",
+      "uninstallDisplayName": "원탑통증재활센터 치료차팅",
+      "language": "1042"
+    }
+  }
+}
