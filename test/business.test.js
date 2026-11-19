@@ -174,6 +174,46 @@ describe('TherapyAppService - 인증 및 마스터/일정/차팅/오프 RPC', ()
       db.close();
     }
   });
+
+  it('관리자 모드에서 담당자 표시 순서만 변경·저장되며 기존 담당자/일정 데이터는 전혀 변경되지 않는다', async () => {
+    const { service, db } = createFixture();
+    try {
+      const t1 = (await service.dispatch('치료사저장', { 이름: '김민수' })).data.갱신;
+      const t2 = (await service.dispatch('치료사저장', { 이름: '이지원' })).data.갱신;
+      const t3 = (await service.dispatch('치료사저장', { 이름: '박서연' })).data.갱신;
+      await service.dispatch('고객저장', { 이름: '홍길동' });
+      const sch = (await service.dispatch('일정저장', {
+        날짜: '2026-11-22',
+        시작시간: '10:00',
+        종료시간: '10:50',
+        치료사: '김민수',
+        고객: '홍길동',
+        서비스: '도수',
+      })).data.갱신;
+
+      // 비관리자는 거부
+      const denied = await service.dispatch('담당자순서저장', { 토큰: 'bad', 순서: [t3.ID, t1.ID, t2.ID] });
+      expect(denied.success).toBe(false);
+
+      const token = (await service.dispatch('관리자로그인', { 비밀번호: '1234' })).data.토큰;
+      const prevVer = service.getSyncState().version;
+      const saved = await service.dispatch('담당자순서저장', {
+        토큰: token,
+        순서: [t3.ID, t1.ID, t2.ID, t3.ID],
+      });
+      expect(saved.success).toBe(true);
+      expect(saved.data.담당자순서).toEqual([t3.ID, t1.ID, t2.ID]);
+      expect(service.getSyncState().version).toBe(prevVer + 1);
+
+      const boot = await service.dispatch('getBootstrapData');
+      expect(boot.data.담당자순서).toEqual([t3.ID, t1.ID, t2.ID]);
+      // 원본 치료사 등록 순서(색상 기준) 및 일정 데이터는 그대로 유지
+      expect(boot.data.치료사.map((t) => t.ID)).toEqual([t1.ID, t2.ID, t3.ID]);
+      expect(boot.data.일정[0]).toEqual(sch);
+    } finally {
+      db.close();
+    }
+  });
 });
 
 describe('SmsService & 우클릭 문자 발송 - 로컬 직접 발송 / 403 IP 미등록 / 타임아웃 / 자동문자', () => {

@@ -99,6 +99,7 @@
           window.상태.서비스 = boot.data.서비스 || [];
           window.상태.일정 = boot.data.일정 || [];
           window.상태.오프 = boot.data.오프 || [];
+          window.상태.담당자순서 = Array.isArray(boot.data.담당자순서) ? boot.data.담당자순서 : [];
         }
         var charts = 결과들[1];
         if (charts && charts.success && Array.isArray(charts.data)) {

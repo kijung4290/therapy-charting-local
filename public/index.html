@@ -142,6 +142,27 @@
       z-index: 10;
     }
 
+    .therapist-col-header[draggable="true"] {
+      cursor: grab;
+      user-select: none;
+      transition: background-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+    }
+
+    .therapist-col-header.therapist-dragging {
+      cursor: grabbing;
+      opacity: 0.4;
+    }
+
+    .therapist-col-header.therapist-drop-left {
+      background: #eff6ff !important;
+      box-shadow: inset 3px 0 0 #2563eb;
+    }
+
+    .therapist-col-header.therapist-drop-right {
+      background: #eff6ff !important;
+      box-shadow: inset -3px 0 0 #2563eb;
+    }
+
     @media (max-width: 640px) {
       .cal-cell {
         min-height: 68px;
@@ -249,7 +270,7 @@
       앱접속토큰: sessionStorage.getItem('치료차팅_앱접속') || '',
       탭: '일정',
       일정보기모드: '달력',
-      고객: [], 치료사: [], 서비스: [], 일정: [], 차팅: [], 오프: [],
+      고객: [], 치료사: [], 서비스: [], 일정: [], 차팅: [], 오프: [], 담당자순서: [],
       차팅로딩됨: false,
       차팅로딩중: false,
       차팅로딩오류: false,
@@ -417,6 +438,7 @@
             상태.서비스 = 결과.data.서비스 || [];
             상태.일정 = 결과.data.일정 || [];
             상태.오프 = 결과.data.오프 || [];
+            상태.담당자순서 = Array.isArray(결과.data.담당자순서) ? 결과.data.담당자순서 : [];
             if (Array.isArray(결과.data.차팅)) {
               상태.차팅 = 결과.data.차팅;
               상태.차팅로딩됨 = true;
@@ -2093,7 +2115,7 @@
     }
 
     function 일정드래그오버(event, 셀) {
-      if (!일정드래그ID) return;
+      if (!일정드래그ID || 담당자드래그ID) return;
       event.preventDefault();
       var 복사 = !!(event.ctrlKey || event.metaKey || event.altKey);
       일정드래그복사모드 = 복사;
@@ -2122,6 +2144,7 @@
     }
 
     function 일정드롭(event, 셀) {
+      if (담당자드래그ID || !일정드래그ID) return;
       event.preventDefault();
       event.stopPropagation();
       var 복사모드 = !!(event.ctrlKey || event.metaKey || event.altKey || 일정드래그복사모드 || (event.dataTransfer && event.dataTransfer.dropEffect === 'copy'));
@@ -2678,16 +2701,127 @@
       }
     }
 
+    // === 관리자 모드: 달력 담당자 열 드래그 순서 변경 (표시 순서만 변경, 데이터 그대로 유지) ===
+    var 담당자드래그ID = '';
+    var 담당자드래그위치 = 'right';
+    var 담당자드래그클릭방지시각 = 0;
+
+    function 정렬된치료사목록(원본목록) {
+      var 목록 = (원본목록 || []).slice();
+      var 순서 = Array.isArray(상태.담당자순서) ? 상태.담당자순서 : [];
+      if (!순서.length) return 목록;
+      var 위치맵 = {};
+      순서.forEach(function (키, idx) { 위치맵[String(키)] = idx; });
+      return 목록.map(function (치, 원래idx) {
+        var id키 = String(치.ID || '');
+        var 이름키 = String(치.이름 || '');
+        var 정렬순 = Object.prototype.hasOwnProperty.call(위치맵, id키)
+          ? 위치맵[id키]
+          : (Object.prototype.hasOwnProperty.call(위치맵, 이름키) ? 위치맵[이름키] : 100000 + 원래idx);
+        return { 항목: 치, 정렬순: 정렬순, 원래idx: 원래idx };
+      }).sort(function (a, b) {
+        return (a.정렬순 - b.정렬순) || (a.원래idx - b.원래idx);
+      }).map(function (w) { return w.항목; });
+    }
+
+    function 담당자오프버튼클릭(버튼, 날짜문자) {
+      if (Date.now() - 담당자드래그클릭방지시각 < 400) return;
+      오프모달(버튼.dataset.therapist, 날짜문자);
+    }
+
+    function 담당자열드래그시작(event, 셀) {
+      if (!상태.로그인토큰) { event.preventDefault(); return; }
+      담당자드래그ID = String(셀.dataset.therapistId || '');
+      if (!담당자드래그ID) { event.preventDefault(); return; }
+      일정드래그ID = '';
+      셀.classList.add('therapist-dragging');
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/therapist-order', 담당자드래그ID);
+      }
+    }
+
+    function 담당자열드래그오버(event, 셀) {
+      if (!담당자드래그ID) return;
+      var 대상ID = String(셀.dataset.therapistId || '');
+      if (!대상ID || 대상ID === 담당자드래그ID) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      var rect = 셀.getBoundingClientRect();
+      var 왼쪽 = (event.clientX - rect.left) < rect.width / 2;
+      담당자드래그위치 = 왼쪽 ? 'left' : 'right';
+      셀.classList.toggle('therapist-drop-left', 왼쪽);
+      셀.classList.toggle('therapist-drop-right', !왼쪽);
+    }
+
+    function 담당자열드래그나감(event, 셀) {
+      if (!event.relatedTarget || !셀.contains(event.relatedTarget)) {
+        셀.classList.remove('therapist-drop-left');
+        셀.classList.remove('therapist-drop-right');
+      }
+    }
+
+    function 담당자열드래그종료(event) {
+      담당자드래그클릭방지시각 = Date.now();
+      담당자드래그ID = '';
+      if (event && event.currentTarget) event.currentTarget.classList.remove('therapist-dragging');
+      document.querySelectorAll('.therapist-col-header').forEach(function (el) {
+        el.classList.remove('therapist-dragging', 'therapist-drop-left', 'therapist-drop-right');
+      });
+    }
+
+    function 담당자열드롭(event, 셀) {
+      if (!담당자드래그ID) return;
+      event.preventDefault();
+      event.stopPropagation();
+      var 원본ID = String((event.dataTransfer && event.dataTransfer.getData('text/therapist-order')) || 담당자드래그ID || '');
+      var 대상ID = String(셀.dataset.therapistId || '');
+      var 왼쪽삽입 = 담당자드래그위치 === 'left';
+      담당자열드래그종료(event);
+      if (!원본ID || !대상ID || 원본ID === 대상ID) return;
+
+      var 이름있는치료사 = 정렬된치료사목록(
+        (상태.치료사 || []).filter(function (치) { return String(치.이름 == null ? '' : 치.이름).trim(); })
+      );
+      var 현재순서 = 이름있는치료사.map(function (치) { return String(치.ID || 치.이름); });
+      var 원본인덱스 = 현재순서.indexOf(원본ID);
+      if (원본인덱스 < 0) return;
+
+      var 이전순서 = (상태.담당자순서 || []).slice();
+      var 새순서 = 현재순서.slice();
+      새순서.splice(원본인덱스, 1);
+      var 대상인덱스 = 새순서.indexOf(대상ID);
+      if (대상인덱스 < 0) return;
+      새순서.splice(왼쪽삽입 ? 대상인덱스 : 대상인덱스 + 1, 0, 원본ID);
+
+      if (JSON.stringify(새순서) === JSON.stringify(현재순서)) return;
+
+      // 낙관적 즉시 반영 (표시 순서만 바뀌며 일정·차팅 데이터는 그대로 유지)
+      상태.담당자순서 = 새순서;
+      render();
+
+      서버호출('담당자순서저장', { 토큰: 상태.로그인토큰, 순서: 새순서 }, function (값) {
+        if (값 && Array.isArray(값.담당자순서)) 상태.담당자순서 = 값.담당자순서;
+        showToast('담당자 표시 순서가 변경되었습니다', 'success');
+      }, function () {
+        상태.담당자순서 = 이전순서;
+        render();
+      }, { 조용히: true });
+    }
+
     function 달력HTML() {
       var 날짜 = 상태.캘린더;
       var 날짜문자 = fmtDate(날짜);
       var 오늘문자 = fmtDate(new Date());
 
       // 치료사 시트에 이름이 빈 행이 있으면 이름 없는 열이 생기므로 달력에서는 뺍니다(시트 데이터는 그대로).
-      var 이름있는치료사 = 상태.치료사.filter(function (치) { return String(치.이름 == null ? '' : 치.이름).trim(); });
+      var 이름있는치료사 = 정렬된치료사목록(
+        상태.치료사.filter(function (치) { return String(치.이름 == null ? '' : 치.이름).trim(); })
+      );
       var 치료사들 = 이름있는치료사.slice();
       if (상태.치료사필터) 치료사들 = 치료사들.filter(function (치) { return String(치.이름) === String(상태.치료사필터); });
       if (!치료사들.length) 치료사들 = 이름있는치료사.slice();
+      var 열드래그가능 = !!(상태.로그인토큰 && !상태.치료사필터 && 치료사들.length > 1);
 
       var 일정목록 = 일정오늘(날짜문자);
       var 슬롯들 = 타임슬롯생성(날짜문자);
@@ -2696,8 +2830,16 @@
       var 헤더셀 = 치료사들.map(function (치) {
         var 색 = 치료사색상(치.이름);
         var 오프수 = 날짜오프목록(날짜문자, 치.이름).length;
-        return '<div class="flex-1 text-center py-1.5 border-l border-gray-100">' +
-          '<button type="button" data-therapist="' + esc(치.이름) + '" onclick="오프모달(this.dataset.therapist, \'' + 날짜문자 + '\')" title="눌러서 ' + esc(치.이름) + ' 오프(쉬는 시간) 설정" class="담당자오프버튼 px-2 py-1 rounded-lg font-bold text-sm hover:bg-white hover:shadow-sm transition ' + 색.텍스트 + '">' +
+        var 치ID = String(치.ID || 치.이름);
+        var 드래그속성 = 열드래그가능
+          ? ' draggable="true" data-therapist-id="' + esc(치ID) + '" ondragstart="담당자열드래그시작(event,this)" ondragover="담당자열드래그오버(event,this)" ondragleave="담당자열드래그나감(event,this)" ondrop="담당자열드롭(event,this)" ondragend="담당자열드래그종료(event)" title="드래그하여 담당자 열 순서 변경 · 클릭하여 오프 설정"'
+          : '';
+        var 그립아이콘 = 열드래그가능
+          ? '<i class="fa-solid fa-grip-vertical text-gray-300 group-hover:text-blue-500 mr-1 text-[11px]"></i>'
+          : '';
+        return '<div class="therapist-col-header group flex-1 text-center py-1.5 border-l border-gray-100"' + 드래그속성 + '>' +
+          '<button type="button" data-therapist="' + esc(치.이름) + '" onclick="담당자오프버튼클릭(this, \'' + 날짜문자 + '\')" title="' + (열드래그가능 ? '드래그: 담당자 열 순서 이동 · 클릭: ' : '눌러서 ') + esc(치.이름) + ' 오프(쉬는 시간) 설정" class="담당자오프버튼 px-2 py-1 rounded-lg font-bold text-sm hover:bg-white hover:shadow-sm transition ' + 색.텍스트 + '">' +
+          그립아이콘 +
           '<span class="inline-block w-2.5 h-2.5 rounded-sm ' + 색.바 + ' mr-1"></span>' + esc(치.이름) +
           (오프수 ? ' <span class="ml-1 px-1.5 py-0.5 rounded bg-gray-600 text-white text-[10px] align-middle">OFF</span>' : ' <i class="fa-solid fa-user-clock ml-1 text-[11px] opacity-40"></i>') +
           '</button></div>';
@@ -2797,13 +2939,13 @@
           <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span>노쇼</span>
           <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-gray-400"></span>취소</span>
           <span class="inline-flex items-center gap-1"><span class="px-1.5 py-0.5 rounded bg-gray-600 text-white text-[9px] font-bold">OFF</span>담당자 이름을 눌러 오프 설정</span>
-          <span class="ml-auto text-gray-500 flex items-center gap-1"><i class="fa-solid fa-mouse-pointer text-blue-500"></i><strong>우클릭:</strong> 예약/완료 변경 · 문자 발송 · <strong>드래그:</strong> 일정 이동/복사</span>
+          <span class="ml-auto text-gray-500 flex items-center gap-1"><i class="fa-solid fa-mouse-pointer text-blue-500"></i><strong>우클릭:</strong> 예약/완료 변경 · 문자 발송 · <strong>드래그:</strong> 일정 이동/복사${열드래그가능 ? ' · <strong>담당자 이름 드래그:</strong> 열 순서 변경' : ''}</span>
         </div>`;
     }
 
     // 치료사 색상 범례 생성
     function 치료사범례HTML() {
-      return 상태.치료사.map(function (치) {
+      return 정렬된치료사목록(상태.치료사).map(function (치) {
         var 색 = 치료사색상(치.이름);
         return '<span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm ' + 색.바 + '"></span>' + esc(치.이름) + '</span>';
       }).join(' ');
@@ -5774,6 +5916,7 @@
             상태.서비스 = 결과.data.서비스 || [];
             상태.일정 = 결과.data.일정 || [];
             상태.오프 = 결과.data.오프 || [];
+            상태.담당자순서 = Array.isArray(결과.data.담당자순서) ? 결과.data.담당자순서 : [];
             if (Array.isArray(결과.data.차팅)) {
               상태.차팅 = 결과.data.차팅;
               상태.차팅로딩됨 = true;

@@ -37,6 +37,7 @@ const MUTATING_METHOD_SCOPES = {
   차팅저장: ['bootstrap', 'charts'],
   메시지미차팅문자발송: ['bootstrap'],
   스프레드시트가져오기: ['bootstrap', 'charts'],
+  담당자순서저장: ['bootstrap'],
 };
 
 class TherapyAppService {
@@ -166,6 +167,7 @@ class TherapyAppService {
       case '고객삭제': return this.deleteClient(arg);
       case '치료사저장': return this.saveTherapist(arg);
       case '치료사삭제': return this.deleteTherapist(arg);
+      case '담당자순서저장': return this.saveTherapistOrder(arg);
       case '서비스저장': return this.saveService(arg);
       case '서비스삭제': return this.deleteService(arg);
       case '기본서비스일괄저장': return this.bulkSaveDefaultServices(arg);
@@ -207,6 +209,36 @@ class TherapyAppService {
     }
   }
 
+  getTherapistOrder() {
+    const raw = this.db.getProperty('THERAPIST_ORDER', '');
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.map((v) => String(v || '').trim()).filter(Boolean) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  saveTherapistOrder(data = {}) {
+    if (!this.verifyAdminToken(data.토큰)) return { success: false, message: '관리자 로그인이 필요합니다' };
+    const list = Array.isArray(data.순서) ? data.순서 : [];
+    const seen = new Set();
+    const cleaned = [];
+    for (const item of list) {
+      const id = String(item || '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      cleaned.push(id);
+    }
+    this.db.setProperty('THERAPIST_ORDER', JSON.stringify(cleaned));
+    return {
+      success: true,
+      message: '담당자 표시 순서가 변경되었습니다',
+      data: { 담당자순서: cleaned },
+    };
+  }
+
   // === Bootstrap & Chart list ===
   getBootstrapData() {
     try {
@@ -218,6 +250,7 @@ class TherapyAppService {
           서비스: this.db.getAllServices(),
           일정: this.db.getAllSchedules(),
           오프: this.db.getAllOffs(),
+          담당자순서: this.getTherapistOrder(),
           오늘: kstToday(),
         },
       };
