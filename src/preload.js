@@ -16,4 +16,10 @@ contextBridge.exposeInMainWorld('localDesktop', {
     ipcRenderer.on('local:update-status', listener);
     return () => ipcRenderer.removeListener('local:update-status', listener);
   },
+  onWindowShown: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = () => callback();
+    ipcRenderer.on('local:window-shown', listener);
+    return () => ipcRenderer.removeListener('local:window-shown', listener);
+  },
 });

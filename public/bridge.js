@@ -1,6 +1,27 @@
 (function () {
   'use strict';
 
+  var CLIENT_ID = 'c_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+
+  function rpcFetch(method, arg) {
+    return fetch('/api/rpc', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Local-App': '1',
+        'X-Client-Id': CLIENT_ID,
+      },
+      body: JSON.stringify({ method: method, arg: arg }),
+    }).then(function (res) {
+      return res.json().catch(function () { return null; }).then(function (data) {
+        if (!res.ok) {
+          throw new Error((data && data.message) || ('HTTP ' + res.status));
+        }
+        return data;
+      });
+    });
+  }
+
   function createRunner(successHandler, failureHandler) {
     return new Proxy({}, {
       get: function (_target, prop) {
@@ -12,22 +33,7 @@
         }
         if (typeof prop !== 'string') return undefined;
         return function (arg) {
-          fetch('/api/rpc', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Local-App': '1',
-            },
-            body: JSON.stringify({ method: prop, arg: arg }),
-          })
-            .then(function (res) {
-              return res.json().catch(function () { return null; }).then(function (data) {
-                if (!res.ok) {
-                  throw new Error((data && data.message) || ('HTTP ' + res.status));
-                }
-                return data;
-              });
-            })
+          rpcFetch(prop, arg)
             .then(function (result) {
               if (typeof successHandler === 'function') successHandler(result);
             })
@@ -44,6 +50,197 @@
   window.google = window.google || {};
   window.google.script = window.google.script || {};
   window.google.script.run = createRunner(null, null);
+
+  // === 실시간 다중 기기 동기화 (SSE + 창 복귀/탭 전환 감지) ===
+  var syncState = {
+    version: null,
+    bootId: '',
+    connected: false,
+    syncing: false,
+    pendingCharts: false,
+    pendingResync: false,
+    timer: null,
+    es: null,
+  };
+
+  function 동기화배지갱신() {
+    var badge = document.getElementById('실시간동기화배지');
+    if (!badge) return;
+    if (syncState.connected) {
+      badge.className = 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200';
+      badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>실시간 동기화';
+      badge.title = '다른 PC나 핸드폰에서 수정하면 화면이 자동으로 갱신됩니다';
+    } else {
+      badge.className = 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200';
+      badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>재연결 중';
+      badge.title = '로컬 서버와 실시간 동기화 연결을 다시 시도 중입니다';
+    }
+  }
+
+  function 백그라운드동기화실행(차팅포함) {
+    if (typeof window.상태 === 'undefined' || !window.상태.앱접속토큰) return;
+    if (syncState.syncing) {
+      syncState.pendingResync = true;
+      if (차팅포함) syncState.pendingCharts = true;
+      return;
+    }
+    syncState.syncing = true;
+    var 차팅갱신필요 = !!(차팅포함 && window.상태.차팅로딩됨);
+
+    var 작업 = [rpcFetch('getBootstrapData', undefined)];
+    if (차팅갱신필요) 작업.push(rpcFetch('차팅데이터조회', undefined));
+
+    Promise.all(작업)
+      .then(function (결과들) {
+        var boot = 결과들[0];
+        if (boot && boot.success && boot.data) {
+          window.상태.고객 = boot.data.고객 || [];
+          window.상태.치료사 = boot.data.치료사 || [];
+          window.상태.서비스 = boot.data.서비스 || [];
+          window.상태.일정 = boot.data.일정 || [];
+          window.상태.오프 = boot.data.오프 || [];
+        }
+        var charts = 결과들[1];
+        if (charts && charts.success && Array.isArray(charts.data)) {
+          window.상태.차팅 = charts.data;
+          window.상태.차팅로딩됨 = true;
+        }
+        if (typeof window.render === 'function' && !document.getElementById('일정컨텍스트메뉴')) {
+          window.render();
+        }
+      })
+      .catch(function () {})
+      .finally(function () {
+        syncState.syncing = false;
+        if (syncState.pendingResync) {
+          var nextCharts = syncState.pendingCharts;
+          syncState.pendingResync = false;
+          syncState.pendingCharts = false;
+          백그라운드동기화실행(nextCharts);
+        }
+      });
+  }
+
+  function 백그라운드동기화예약(차팅포함) {
+    if (차팅포함) syncState.pendingCharts = true;
+    if (syncState.timer) clearTimeout(syncState.timer);
+    syncState.timer = setTimeout(function () {
+      var needCharts = syncState.pendingCharts;
+      syncState.timer = null;
+      syncState.pendingCharts = false;
+      백그라운드동기화실행(needCharts);
+    }, 200);
+  }
+
+  function 서버버전확인후동기화(강제) {
+    fetch('/api/sync-version', { cache: 'no-store' })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (info) {
+        if (!info || !info.success) return;
+        var changed =
+          syncState.version != null &&
+          (info.version !== syncState.version || info.bootId !== syncState.bootId);
+        syncState.version = info.version;
+        syncState.bootId = info.bootId || '';
+        if (changed || 강제) {
+          백그라운드동기화예약(true);
+        }
+      })
+      .catch(function () {});
+  }
+
+  function 실시간동기화시작() {
+    if (typeof EventSource === 'undefined') {
+      setInterval(function () {
+        if (!document.hidden) 서버버전확인후동기화(false);
+      }, 10000);
+      return;
+    }
+    if (syncState.es) {
+      try { syncState.es.close(); } catch (_) {}
+    }
+    var es = new EventSource('/api/events');
+    syncState.es = es;
+
+    es.addEventListener('hello', function (ev) {
+      syncState.connected = true;
+      동기화배지갱신();
+      try {
+        var data = JSON.parse(ev.data || '{}');
+        var changed =
+          syncState.version != null &&
+          (data.version !== syncState.version || data.bootId !== syncState.bootId);
+        syncState.version = data.version;
+        syncState.bootId = data.bootId || '';
+        if (changed) 백그라운드동기화예약(true);
+      } catch (_) {}
+    });
+
+    es.addEventListener('data-changed', function (ev) {
+      try {
+        var data = JSON.parse(ev.data || '{}');
+        syncState.version = data.version;
+        if (data.bootId) syncState.bootId = data.bootId;
+        if (data.originClientId && data.originClientId === CLIENT_ID) {
+          return;
+        }
+        var scopes = Array.isArray(data.scopes) ? data.scopes : ['bootstrap'];
+        백그라운드동기화예약(scopes.indexOf('charts') >= 0);
+      } catch (_) {
+        백그라운드동기화예약(true);
+      }
+    });
+
+    es.onerror = function () {
+      syncState.connected = false;
+      동기화배지갱신();
+    };
+
+    // 모바일/절전 복귀 대비 15초 백업 체크 (연결이 끊겼을 때만 동작)
+    setInterval(function () {
+      if (!document.hidden && !syncState.connected) {
+        서버버전확인후동기화(false);
+      }
+    }, 15000);
+  }
+
+  window.수동데이터새로고침 = function () {
+    if (typeof window.새로고침데이터 !== 'function') return;
+    window.새로고침데이터(function () {
+      if (typeof window.render === 'function') window.render();
+      if (typeof window.차팅데이터불러오기 === 'function' && window.상태 && window.상태.차팅로딩됨) {
+        window.상태.차팅로딩됨 = false;
+        window.차팅데이터불러오기(function () {
+          if (typeof window.render === 'function') window.render();
+        }, true);
+      }
+      서버버전확인후동기화(false);
+      if (typeof window.showToast === 'function') {
+        window.showToast('최신 데이터를 불러왔습니다', 'info');
+      }
+    });
+  };
+
+  window.addEventListener('DOMContentLoaded', function () {
+    동기화배지갱신();
+    실시간동기화시작();
+  });
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) {
+      서버버전확인후동기화(false);
+    }
+  });
+
+  window.addEventListener('focus', function () {
+    서버버전확인후동기화(false);
+  });
+
+  if (window.localDesktop && window.localDesktop.onWindowShown) {
+    window.localDesktop.onWindowShown(function () {
+      서버버전확인후동기화(true);
+    });
+  }
 
   // === 로컬 앱 전용 상태 ===
   window.로컬상태 = {

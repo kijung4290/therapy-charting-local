@@ -18,12 +18,68 @@ const {
   importParsedWorkbook,
 } = require('./migration');
 
+const MUTATING_METHOD_SCOPES = {
+  고객저장: ['bootstrap', 'charts'],
+  고객삭제: ['bootstrap'],
+  치료사저장: ['bootstrap', 'charts'],
+  치료사삭제: ['bootstrap'],
+  서비스저장: ['bootstrap'],
+  서비스삭제: ['bootstrap'],
+  기본서비스일괄저장: ['bootstrap'],
+  일정저장: ['bootstrap', 'charts'],
+  일정삭제: ['bootstrap', 'charts'],
+  일정상태변경: ['bootstrap'],
+  일정확인항목변경: ['bootstrap'],
+  일정드래그변경: ['bootstrap', 'charts'],
+  일정드래그복사: ['bootstrap'],
+  오프저장: ['bootstrap'],
+  오프삭제: ['bootstrap'],
+  차팅저장: ['bootstrap', 'charts'],
+  메시지미차팅문자발송: ['bootstrap'],
+  스프레드시트가져오기: ['bootstrap', 'charts'],
+};
+
 class TherapyAppService {
   constructor(db, sms, options = {}) {
     this.db = db;
     this.sms = sms;
     this.onConfigChanged = options.onConfigChanged || null;
     this.getRuntimeInfo = options.getRuntimeInfo || (() => ({}));
+    this.bootId = fullUuid().substring(0, 8);
+    this.dataVersion = 1;
+    this._changeListeners = new Set();
+    if (this.sms && !this.sms.onDataChanged) {
+      this.sms.onDataChanged = (info) => this.notifyDataChanged(info);
+    }
+  }
+
+  getSyncState() {
+    return {
+      version: this.dataVersion,
+      bootId: this.bootId,
+    };
+  }
+
+  onDataChanged(listener) {
+    if (typeof listener !== 'function') return () => {};
+    this._changeListeners.add(listener);
+    return () => this._changeListeners.delete(listener);
+  }
+
+  notifyDataChanged(info = {}) {
+    this.dataVersion += 1;
+    const event = {
+      version: this.dataVersion,
+      bootId: this.bootId,
+      method: String(info.method || ''),
+      scopes: Array.isArray(info.scopes) && info.scopes.length ? info.scopes : ['bootstrap'],
+      originClientId: String(info.originClientId || ''),
+      at: kstTimestamp(),
+    };
+    for (const fn of this._changeListeners) {
+      try { fn(event); } catch (_) {}
+    }
+    return event;
   }
 
   // === Auth & Token ===
@@ -83,7 +139,20 @@ class TherapyAppService {
   }
 
   // === Main RPC Router ===
-  async dispatch(method, arg) {
+  async dispatch(method, arg, meta = {}) {
+    const result = await this._dispatchInternal(method, arg);
+    const scopes = MUTATING_METHOD_SCOPES[method];
+    if (scopes && result && result.success) {
+      this.notifyDataChanged({
+        method,
+        scopes,
+        originClientId: meta && meta.clientId ? String(meta.clientId) : '',
+      });
+    }
+    return result;
+  }
+
+  async _dispatchInternal(method, arg) {
     switch (method) {
       case 'getBootstrapData': return this.getBootstrapData();
       case '차팅데이터조회': return this.getChartList();
@@ -979,7 +1048,7 @@ class TherapyAppService {
 
     const res = await this.sms.sendSingle('차팅문자', schedule.고객 || '', phone, rendered, cfg);
     if (res.success) {
-      this.sms.markScheduleSmsFlag(scheduleId, '예약문자 발송확인');
+      this.sms.markScheduleSmsFlag(scheduleId, '예약문자 발송확인', false);
       res.data = { ...(res.data || {}), 갱신: this.db.getScheduleById(scheduleId) };
     }
     return res;

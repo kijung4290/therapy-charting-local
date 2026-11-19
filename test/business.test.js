@@ -400,4 +400,58 @@ describe('LocalHttpServer E2E', () => {
     expect(arr[0]).toBe(0x50);
     expect(arr[1]).toBe(0x4b);
   });
+
+  it('실시간 동기화 SSE(/api/events)와 /api/sync-version이 다른 기기의 변경 사항을 즉시 브로드캐스트한다', async () => {
+    const base = `http://127.0.0.1:${server.port}`;
+
+    const v1 = await fetch(`${base}/api/sync-version`).then((r) => r.json());
+    expect(v1.success).toBe(true);
+    expect(v1.version).toBe(1);
+
+    const ac = new AbortController();
+    const sseRes = await fetch(`${base}/api/events`, { signal: ac.signal });
+    expect(sseRes.status).toBe(200);
+    expect(sseRes.headers.get('content-type')).toContain('text/event-stream');
+
+    const reader = sseRes.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    async function readUntil(marker) {
+      const deadline = Date.now() + 5000;
+      while (!buffer.includes(marker)) {
+        if (Date.now() > deadline) throw new Error('SSE timeout waiting for ' + marker + '; got: ' + buffer);
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+      }
+      return buffer;
+    }
+
+    await readUntil('event: hello');
+    expect(buffer).toContain('"version":1');
+
+    // 핸드폰(phone-client)에서 고객 저장 RPC 실행
+    const saveRes = await fetch(`${base}/api/rpc`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Local-App': '1',
+        'X-Client-Id': 'phone-client',
+      },
+      body: JSON.stringify({ method: '고객저장', arg: { 이름: '모바일등록고객', 연락처: '010-7777-1234' } }),
+    }).then((r) => r.json());
+    expect(saveRes.success).toBe(true);
+
+    await readUntil('event: data-changed');
+    expect(buffer).toContain('"version":2');
+    expect(buffer).toContain('"method":"고객저장"');
+    expect(buffer).toContain('"originClientId":"phone-client"');
+
+    const v2 = await fetch(`${base}/api/sync-version`).then((r) => r.json());
+    expect(v2.version).toBe(2);
+
+    ac.abort();
+    await reader.cancel().catch(() => {});
+  });
 });

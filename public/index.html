@@ -183,6 +183,7 @@
         <div class="flex items-center gap-2">
           <h1 class="text-lg font-bold text-gray-800">원탑통증재활센터</h1>
           <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">로컬앱</span>
+          <span id="실시간동기화배지" class="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200"><span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>연결 중</span>
         </div>
         <div id="user-area"></div>
       </div>
@@ -804,12 +805,15 @@
       $('nav-tabs').innerHTML = tabs;
 
       var 관리자영역 = $('user-area');
+      var 새로고침버튼 = '<button onclick="수동데이터새로고침()" title="최신 데이터 새로고침" class="text-sm text-gray-600 border rounded-lg px-2.5 py-1.5 hover:bg-gray-100 mr-2"><i class="fa-solid fa-rotate-right"></i></button>';
       관리자영역.innerHTML = 상태.로그인토큰
-        ? '<button onclick="데이터관리모달()" class="text-sm text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-lg px-3 py-1.5 hover:bg-emerald-100 mr-2 font-semibold"><i class="fa-solid fa-file-import mr-1"></i>데이터 이전/백업</button>' +
+        ? 새로고침버튼 +
+        '<button onclick="데이터관리모달()" class="text-sm text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-lg px-3 py-1.5 hover:bg-emerald-100 mr-2 font-semibold"><i class="fa-solid fa-file-import mr-1"></i>데이터 이전/백업</button>' +
         '<button onclick="메시지미설정모달()" class="text-sm text-blue-600 border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 mr-2"><i class="fa-solid fa-comment-sms mr-1"></i>문자 설정</button>' +
         '<button onclick="비밀번호변경모달()" class="text-sm text-gray-500 border rounded-lg px-3 py-1.5 hover:bg-gray-100 mr-2"><i class="fa-solid fa-key mr-1"></i>비밀번호 설정</button>' +
         '<button onclick="관리자로그아웃()" class="text-sm text-gray-500 border rounded-lg px-3 py-1.5 hover:bg-gray-100"><i class="fa-solid fa-right-from-bracket mr-1"></i>로그아웃</button>'
-        : '<button onclick="데이터관리모달()" class="text-sm text-emerald-700 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 rounded-lg px-3 py-1.5 font-semibold mr-2"><i class="fa-solid fa-file-import mr-1"></i>스프레드시트 가져오기</button>' +
+        : 새로고침버튼 +
+        '<button onclick="데이터관리모달()" class="text-sm text-emerald-700 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 rounded-lg px-3 py-1.5 font-semibold mr-2"><i class="fa-solid fa-file-import mr-1"></i>스프레드시트 가져오기</button>' +
         '<button onclick="관리자로그인모달()" class="text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-lg px-3 py-1.5 font-semibold"><i class="fa-solid fa-lock mr-1"></i>관리자 인증</button>';
     }
 

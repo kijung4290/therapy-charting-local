@@ -175,6 +175,14 @@ function createWindow() {
     mainWindow.show();
   });
 
+  mainWindow.on('show', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        mainWindow.webContents.send('local:window-shown');
+      } catch (_) {}
+    }
+  });
+
   mainWindow.webContents.on('did-finish-load', () => {
     if (updateController) {
       broadcastUpdateState(updateController.getState());

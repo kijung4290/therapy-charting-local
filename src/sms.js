@@ -47,6 +47,7 @@ class SmsService {
     this.fetchImpl = options.fetchImpl || globalThis.fetch.bind(globalThis);
     this.requestTimeoutMs = options.requestTimeoutMs || 15000;
     this.retryDelayMs = options.retryDelayMs != null ? options.retryDelayMs : 1500;
+    this.onDataChanged = options.onDataChanged || null;
     this._autoRunning = false;
   }
 
@@ -623,12 +624,15 @@ class SmsService {
     };
   }
 
-  markScheduleSmsFlag(scheduleId, field) {
+  markScheduleSmsFlag(scheduleId, field, shouldNotify = true) {
     try {
       const row = this.db.getScheduleById(scheduleId);
       if (!row) return '없음';
       row[field] = true;
       this.db.upsertSchedule(row);
+      if (shouldNotify && this.onDataChanged) {
+        try { this.onDataChanged({ method: '자동문자발송', scopes: ['bootstrap'] }); } catch (_) {}
+      }
       return '완료';
     } catch (_) {
       return '실패';

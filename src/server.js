@@ -60,11 +60,28 @@ class LocalHttpServer {
     this.service = service;
     this.db = db;
     this.publicDir = options.publicDir || path.join(__dirname, '..', 'public');
-    this.preferredPort = options.port || 3840;
+    this.preferredPort = options.port != null ? options.port : 3840;
     this.host = options.lanEnabled ? '0.0.0.0' : '127.0.0.1';
     this.port = this.preferredPort;
     this.server = null;
     this.sockets = new Set();
+    this.sseClients = new Set();
+    this._ssePingTimer = null;
+    this._unsubscribeChanges = this.service && this.service.onDataChanged
+      ? this.service.onDataChanged((evt) => this.broadcastSse('data-changed', evt))
+      : null;
+  }
+
+  broadcastSse(eventName, payload) {
+    if (!this.sseClients.size) return;
+    const frame = `event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`;
+    for (const res of [...this.sseClients]) {
+      try {
+        res.write(frame);
+      } catch (_) {
+        this.sseClients.delete(res);
+      }
+    }
   }
 
   getRuntimeInfo() {
@@ -75,6 +92,7 @@ class LocalHttpServer {
       로컬주소: `http://127.0.0.1:${this.port}`,
       원내접속주소목록: lanEnabled ? lanIps.map((ip) => `http://${ip}:${this.port}`) : [],
       원내IP목록: lanIps,
+      실시간연결기기수: this.sseClients.size,
     };
   }
 
@@ -91,6 +109,30 @@ class LocalHttpServer {
       return;
     }
 
+    if (req.method === 'GET' && pathname === '/api/sync-version') {
+      const state = this.service.getSyncState ? this.service.getSyncState() : { version: 1, bootId: '' };
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ success: true, ...state }));
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/events') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+      if (typeof res.flushHeaders === 'function') res.flushHeaders();
+      const state = this.service.getSyncState ? this.service.getSyncState() : { version: 1, bootId: '' };
+      res.write(`event: hello\ndata: ${JSON.stringify(state)}\n\n`);
+      this.sseClients.add(res);
+      req.on('close', () => {
+        this.sseClients.delete(res);
+      });
+      return;
+    }
+
     if (req.method === 'POST' && pathname === '/api/rpc') {
       if (req.headers['x-local-app'] !== '1') {
         res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -99,7 +141,8 @@ class LocalHttpServer {
       }
       try {
         const body = await readJsonBody(req);
-        const result = await this.service.dispatch(body.method, body.arg);
+        const clientId = String(req.headers['x-client-id'] || '');
+        const result = await this.service.dispatch(body.method, body.arg, { clientId });
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(result));
       } catch (err) {
@@ -193,10 +236,30 @@ class LocalHttpServer {
         throw err;
       }
     }
+    if (!this._ssePingTimer) {
+      this._ssePingTimer = setInterval(() => {
+        for (const res of [...this.sseClients]) {
+          try {
+            res.write(': ping\n\n');
+          } catch (_) {
+            this.sseClients.delete(res);
+          }
+        }
+      }, 25000);
+      if (typeof this._ssePingTimer.unref === 'function') this._ssePingTimer.unref();
+    }
     return this.port;
   }
 
   async stop() {
+    if (this._ssePingTimer) {
+      clearInterval(this._ssePingTimer);
+      this._ssePingTimer = null;
+    }
+    for (const res of [...this.sseClients]) {
+      try { res.end(); } catch (_) {}
+    }
+    this.sseClients.clear();
     if (!this.server) return;
     const srv = this.server;
     this.server = null;
