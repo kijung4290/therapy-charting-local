@@ -402,6 +402,20 @@
         <div class="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
           <h4 class="font-bold text-indigo-900 text-sm mb-3"><i class="fa-solid fa-desktop text-indigo-600 mr-1.5"></i>3. 로컬 앱 실행 · 원내 네트워크 공유</h4>
           <div class="space-y-2.5 text-sm">
+            ${데스크톱 ? `
+            <div class="rounded-xl border border-indigo-100 bg-white/80 p-3 space-y-2">
+              <label class="flex items-start gap-2.5 cursor-pointer">
+                <input id="로컬부팅자동실행" type="checkbox" ${정보.부팅자동실행 ? 'checked' : ''} onchange="var sub=$('로컬자동실행트레이'); if(sub) sub.disabled=!this.checked;" class="mt-1 h-4 w-4 rounded">
+                <div>
+                  <div class="font-semibold text-gray-800">Windows PC 부팅 시 자동 실행</div>
+                  <div class="text-xs text-gray-500">서버 PC 전원을 켜면 로그인과 동시에 앱이 자동 시작되어 원내 공유와 자동문자가 바로 작동합니다.</div>
+                </div>
+              </label>
+              <label class="flex items-center gap-2 pl-6 text-xs text-gray-600 cursor-pointer">
+                <input id="로컬자동실행트레이" type="checkbox" ${정보.자동실행트레이시작 !== false ? 'checked' : ''} ${정보.부팅자동실행 ? '' : 'disabled'} class="h-3.5 w-3.5 rounded">
+                <span>부팅 시 창을 띄우지 않고 시스템 트레이(백그라운드)로 조용히 시작</span>
+              </label>
+            </div>` : ''}
             <label class="flex items-start gap-2.5 cursor-pointer">
               <input id="로컬트레이상주" type="checkbox" ${정보.트레이상주 !== false ? 'checked' : ''} class="mt-1 h-4 w-4 rounded">
               <div>
@@ -554,6 +568,8 @@
   window.로컬설정저장하기 = function () {
     var 데이터 = {
       토큰: 상태.로그인토큰,
+      부팅자동실행: $('로컬부팅자동실행') ? $('로컬부팅자동실행').checked : !!(window.로컬상태.정보 && window.로컬상태.정보.부팅자동실행),
+      자동실행트레이시작: $('로컬자동실행트레이') ? $('로컬자동실행트레이').checked : true,
       트레이상주: $('로컬트레이상주') ? $('로컬트레이상주').checked : true,
       원내공유활성: $('로컬원내공유') ? $('로컬원내공유').checked : false,
     };

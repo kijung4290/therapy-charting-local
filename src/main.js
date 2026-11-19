@@ -39,6 +39,21 @@ function loadTrayIcon() {
   return nativeImage.createEmpty();
 }
 
+function applyAutoStartSetting(enabled, startHidden) {
+  if (!app.isPackaged) return false;
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: Boolean(enabled),
+      path: process.execPath,
+      args: enabled && startHidden !== false ? ['--autostart'] : [],
+    });
+    return true;
+  } catch (err) {
+    console.error('[부팅 자동 실행 설정 오류]', err);
+    return false;
+  }
+}
+
 function broadcastUpdateState(state) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
@@ -51,6 +66,8 @@ function updateTrayMenu() {
   if (!tray || !db) return;
   const autoEnabled = db.getProperty('AUTO_SMS_ENABLED', 'N') === 'Y';
   const lanEnabled = db.getProperty('LAN_SHARE_ENABLED', 'N') === 'Y';
+  const autoStartEnabled = db.getProperty('AUTO_START_ENABLED', 'N') === 'Y';
+  const autoStartHidden = db.getProperty('AUTO_START_HIDDEN', 'Y') !== 'N';
   const info = httpServer ? httpServer.getRuntimeInfo() : {};
   const uState = updateController ? updateController.getState() : { status: 'idle', currentVersion: app.getVersion() };
 
@@ -85,6 +102,17 @@ function updateTrayMenu() {
     {
       label: `원내 공유: ${lanEnabled ? `켜짐 (${(info.원내접속주소목록 || [])[0] || info.로컬주소 || ''})` : '꺼짐 (내 PC 전용)'}`,
       enabled: false,
+    },
+    {
+      label: 'PC 부팅 시 자동 실행',
+      type: 'checkbox',
+      checked: autoStartEnabled,
+      click: (menuItem) => {
+        const next = !!menuItem.checked;
+        db.setProperty('AUTO_START_ENABLED', next ? 'Y' : 'N');
+        applyAutoStartSetting(next, autoStartHidden);
+        updateTrayMenu();
+      },
     },
     updateItem,
     { type: 'separator' },
@@ -208,12 +236,18 @@ app.whenReady().then(async () => {
     sms = new SmsService(db);
 
     const lanEnabled = db.getProperty('LAN_SHARE_ENABLED', 'N') === 'Y';
+    const autoStartEnabled = db.getProperty('AUTO_START_ENABLED', 'N') === 'Y';
+    const autoStartHidden = db.getProperty('AUTO_START_HIDDEN', 'Y') !== 'N';
+    if (autoStartEnabled) {
+      applyAutoStartSetting(true, autoStartHidden);
+    }
 
     service = new TherapyAppService(db, sms, {
       getRuntimeInfo: () => ({
         ...(httpServer ? httpServer.getRuntimeInfo() : {}),
         앱버전: app.getVersion(),
         데스크톱앱: true,
+        패키지실행: app.isPackaged,
       }),
       onConfigChanged: async (changes) => {
         if (changes && typeof changes.lanEnabled === 'boolean' && httpServer) {
@@ -222,6 +256,9 @@ app.whenReady().then(async () => {
           } catch (err) {
             console.error('[서버 재바인딩 실패]', err);
           }
+        }
+        if (changes && typeof changes.autoStartEnabled === 'boolean') {
+          applyAutoStartSetting(changes.autoStartEnabled, changes.autoStartHidden !== false);
         }
         updateTrayMenu();
       },
@@ -260,7 +297,11 @@ app.whenReady().then(async () => {
     ipcMain.handle('local:install-update', () => updateController.installNow());
 
     setupTray();
-    createWindow();
+    const launchedByAutoStart = process.argv.includes('--autostart');
+    const trayOnClose = db.getProperty('TRAY_ON_CLOSE', 'Y') !== 'N';
+    if (!(launchedByAutoStart && autoStartHidden && trayOnClose)) {
+      createWindow();
+    }
     startAutoSmsScheduler();
     updateController.start();
   } catch (err) {

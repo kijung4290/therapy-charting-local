@@ -136,6 +136,44 @@ describe('TherapyAppService - 인증 및 마스터/일정/차팅/오프 RPC', ()
       db.close();
     }
   });
+
+  it('PC 부팅 시 자동 실행 및 원내 공유 로컬 설정이 저장·조회되고 콜백에 전달된다', async () => {
+    const db = new LocalDatabase(':memory:');
+    const sms = new SmsService(db);
+    let captured = null;
+    const service = new TherapyAppService(db, sms, {
+      onConfigChanged: (cfg) => { captured = cfg; },
+    });
+    try {
+      const token = (await service.dispatch('관리자로그인', { 비밀번호: '1234' })).data.토큰;
+      const before = await service.dispatch('로컬상태조회', { 토큰: token });
+      expect(before.success).toBe(true);
+      expect(before.data.부팅자동실행).toBe(false);
+      expect(before.data.자동실행트레이시작).toBe(true);
+
+      const saved = await service.dispatch('로컬설정저장', {
+        토큰: token,
+        부팅자동실행: true,
+        자동실행트레이시작: true,
+        트레이상주: true,
+        원내공유활성: true,
+      });
+      expect(saved.success).toBe(true);
+      expect(saved.data.부팅자동실행).toBe(true);
+      expect(captured).toEqual({
+        lanEnabled: true,
+        trayOnClose: true,
+        autoStartEnabled: true,
+        autoStartHidden: true,
+      });
+
+      const after = await service.dispatch('로컬상태조회', { 토큰: token });
+      expect(after.data.부팅자동실행).toBe(true);
+      expect(after.data.원내공유활성).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
 });
 
 describe('SmsService & 우클릭 문자 발송 - 로컬 직접 발송 / 403 IP 미등록 / 타임아웃 / 자동문자', () => {

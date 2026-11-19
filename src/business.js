@@ -1003,29 +1003,40 @@ class TherapyAppService {
         백업폴더: this.db.backupDir || '',
         원내공유활성: props.LAN_SHARE_ENABLED === 'Y',
         트레이상주: props.TRAY_ON_CLOSE !== 'N',
+        부팅자동실행: props.AUTO_START_ENABLED === 'Y',
+        자동실행트레이시작: props.AUTO_START_HIDDEN !== 'N',
         자동문자활성: props.AUTO_SMS_ENABLED === 'Y',
         ...this.getRuntimeInfo(),
       },
     };
   }
 
-  saveLocalSettings(data = {}) {
+  async saveLocalSettings(data = {}) {
     if (!this.verifyAdminToken(data.토큰)) return { success: false, message: '관리자 로그인이 필요합니다' };
     const lanEnabled = !!data.원내공유활성;
     const trayOnClose = data.트레이상주 !== false;
+    const autoStartEnabled = !!data.부팅자동실행;
+    const autoStartHidden = data.자동실행트레이시작 !== false;
     this.db.setProperties({
       LAN_SHARE_ENABLED: lanEnabled ? 'Y' : 'N',
       TRAY_ON_CLOSE: trayOnClose ? 'Y' : 'N',
+      AUTO_START_ENABLED: autoStartEnabled ? 'Y' : 'N',
+      AUTO_START_HIDDEN: autoStartHidden ? 'Y' : 'N',
     });
     if (this.onConfigChanged) {
-      this.onConfigChanged({ lanEnabled, trayOnClose });
+      await this.onConfigChanged({ lanEnabled, trayOnClose, autoStartEnabled, autoStartHidden });
     }
+    const notes = [];
+    if (autoStartEnabled) notes.push('PC 부팅 시 자동 실행 켜짐');
+    if (lanEnabled) notes.push('원내 공유 켜짐');
     return {
       success: true,
-      message: '로컬 앱 설정이 저장되었습니다' + (lanEnabled ? ' (원내 공유 적용 중)' : ''),
+      message: '로컬 앱 설정이 저장되었습니다' + (notes.length ? ` (${notes.join(' · ')})` : ''),
       data: {
         원내공유활성: lanEnabled,
         트레이상주: trayOnClose,
+        부팅자동실행: autoStartEnabled,
+        자동실행트레이시작: autoStartHidden,
         ...this.getRuntimeInfo(),
       },
     };
