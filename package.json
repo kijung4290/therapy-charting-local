@@ -1,7 +1,7 @@
 {
   "name": "therapy-charting-local",
   "productName": "원탑통증재활센터",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "원탑통증재활센터",
   "description": "원탑통증재활센터 치료차팅 로컬 설치형 프로그램 (메세지미 국내 직접 발송 · 스프레드시트 데이터 이전 · GitHub 실시간 자동 업데이트)",
   "repository": {
